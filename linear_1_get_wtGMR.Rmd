@@ -1,0 +1,208 @@
+---
+title: "Getting pooled estimates for Geometric Mean Concentration Ratio (GMR)"
+author: "Anabelle Wong"
+date: "2024-02-22"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+list_packages <- c("readxl", "stringr", "tidyverse", "ggplot2", "patchwork")
+for(package_i in list_packages){
+  suppressPackageStartupMessages(library(package_i, character.only = TRUE))
+}
+
+# Set theme
+theme_set(theme_bw())
+
+# Read in functions
+source("./_functions/get_wtGMR.R")
+
+# Set vector of serotypes of interest
+vec_7st <- c("4", "6B", "9V", "14", "18C", "19F", "23F")
+vec_pcv13.6st <- c("1", "3", "5", "6A", "7F", "19A")
+vec_pcv20.7st <- c("8", "10A", "11A", "12F", "15B", "22F", "33F")
+
+vec_13st <- c(vec_7st, vec_pcv13.6st)
+vec_20st <- c(vec_13st, vec_pcv20.7st)
+```
+
+## Preprocess GMC data
+* For the 6 additional PCV13 serotypes, NaN & -Inf were created for some serotypes because the IgG levels from PCV7 for those serotypes were zero.
+
+``` {r preprocess_GMC, echo=FALSE, message=FALSE}
+# Read in trial results for post-booster
+df_13v7_postprim <- read_excel("./_data/df_13v7_postprim_n5.xlsx")
+df_13v7_postboost <- read_excel("./_data/df_13v7_postboost_n5.xlsx")
+df_15v13_postprim <- read_excel("./_data/df_15v13_postprim_n9_ELISA.xlsx")
+df_15v13_postboost <- read_excel("./_data/df_15v13_postboost_n11_ELISA.xlsx")
+df_20v13_postprim <- read_excel("./_data/df_20v13_postprim_n3.xlsx")
+df_20v13_postboost <- read_excel("./_data/df_20v13_postboost_n4.xlsx")
+
+# Log-transform GMC and get se
+df_13v7_postprim <- transform_GMC(df_13v7_postprim, vec_13st)
+df_13v7_postboost <- transform_GMC(df_13v7_postboost, vec_13st)
+df_15v13_postprim <- transform_GMC(df_15v13_postprim, vec_13st)
+df_15v13_postboost <- transform_GMC(df_15v13_postboost, vec_13st)
+df_20v13_postprim <- transform_GMC(df_20v13_postprim, vec_20st)
+df_20v13_postboost <- transform_GMC(df_20v13_postboost, vec_20st)
+
+# Plot to check
+plot_GMC <- function(data, vec_st, vec_col, n_col){
+  ggplot(data %>% filter(serotype %in% vec_st)) +
+    geom_pointrange(aes(x = serotype, y = LogGMC, ymax = LogUCL, ymin = LogLCL,
+                        col = vaccine), position = position_dodge2(width = 0.5)) +
+    scale_colour_manual(values = vec_col) +
+    labs(x = "Serotype", y = "Log-GMC", col = "Vaccine") +
+    facet_wrap(~study_id, ncol = n_col) +
+    theme(strip.background = element_rect(fill = "white", colour = "white"),
+          legend.position = "bottom")
+}
+
+# Plot results
+p1a <- plot_GMC(df_13v7_postboost, vec_st = vec_13st, vec_col = c("darkviolet", "blue3"), n_col = 3)
+p1b <- plot_GMC(df_15v13_postboost, vec_st = vec_13st, vec_col = c("blue3", "darkviolet"), n_col = 3)
+p1c <- plot_GMC(df_20v13_postboost, vec_st = vec_20st, vec_col = c("blue3", "darkviolet"), n_col = 3)
+p1d <- plot_GMC(df_13v7_postprim, vec_st = vec_13st, vec_col = c("darkviolet", "blue3"), n_col = 3)
+p1e <- plot_GMC(df_15v13_postprim, vec_st = vec_13st, vec_col = c("blue3", "darkviolet"), n_col = 3)
+p1f <- plot_GMC(df_20v13_postprim, vec_st = vec_20st, vec_col = c("blue3", "darkviolet"), n_col = 3)
+```
+
+## Get GMC ratio (GMR)
+``` {r get_GMR, echo=FALSE, message=FALSE}
+# Get GMC ratio
+df_GMR_13v7_postprim <- get_GMR(df_13v7_postprim, vaccine2 = "PCV13", vaccine1 = "PCV7", vec_st = vec_13st)
+df_GMR_13v7_postboost <- get_GMR(df_13v7_postboost, vaccine2 = "PCV13", vaccine1 = "PCV7", vec_st = vec_13st)
+df_GMR_15v13_postprim <- get_GMR(df_15v13_postprim, vaccine2 = "PCV15", vaccine1 = "PCV13", vec_st = vec_13st)
+df_GMR_15v13_postboost <- get_GMR(df_15v13_postboost, vaccine2 = "PCV15", vaccine1 = "PCV13", vec_st = vec_13st)
+df_GMR_20v13_postprim <- get_GMR(df_20v13_postprim, vaccine2 = "PCV20", vaccine1 = "PCV13", vec_st = vec_20st)
+df_GMR_20v13_postboost <- get_GMR(df_20v13_postboost, vaccine2 = "PCV20", vaccine1 = "PCV13", vec_st = vec_20st)
+
+
+# Plot GMR
+plot_GMR <- function(df_GMR, vec_st, n_col){
+  ggplot(df_GMR %>% filter(serotype %in% vec_st)) +
+    geom_pointrange(aes(x = serotype, y = LogGMR, 
+                        ymax = uci, 
+                        ymin = lci)) +
+    geom_hline(yintercept = 0, lty = "dashed") +
+    labs(x = "Serotype", y = "log-GMR") +
+    facet_wrap(~study_id, ncol = n_col) +
+    theme(strip.background = element_rect(fill = "white", colour = "white"),
+          legend.position = "bottom",
+          panel.grid.minor = element_blank())
+}
+
+# Plot results
+p2a <- plot_GMR(df_GMR_13v7_postboost, vec_st = vec_7st, n_col = 3)
+p2b <- plot_GMR(df_GMR_15v13_postboost, vec_st = vec_13st, n_col = 3)
+p2c <- plot_GMR(df_GMR_20v13_postboost, vec_st = vec_13st, n_col = 2)
+p2d <- plot_GMR(df_GMR_13v7_postprim, vec_st = vec_7st, n_col = 3)
+p2e <- plot_GMR(df_GMR_15v13_postprim, vec_st = vec_7st, n_col = 3)
+p2f <- plot_GMR(df_GMR_20v13_postprim, vec_st = vec_13st, n_col = 2)
+
+# # Save plots for post-booster
+# ggsave(p2a, filename = "_figures/_suppl/LogGMR_13v7_postboost_700-450.png", device = "png", width = 7, height = 4.5, unit = "in", dpi = 320)
+# ggsave(p2b, filename = "_figures/_suppl/LogGMR_15v13_postboost_1000-600.png", device = "png", width = 10, height = 6, unit = "in", dpi = 320)
+# ggsave(p2c, filename = "_figures/_suppl/LogGMR_20v13_postboost_700-450.png", device = "png", width = 7, height = 4.5, unit = "in", dpi = 320)
+# 
+# ggsave(p2d, filename = "_figures/_suppl/LogGMR_13v7_postprim_700-450.png", device = "png", width = 7, height = 4.5, unit = "in", dpi = 320)
+# ggsave(p2e, filename = "_figures/_suppl/LogGMR_15v13_postprim_1000-600.png", device = "png", width = 10, height = 6, unit = "in", dpi = 320)
+# ggsave(p2f, filename = "_figures/_suppl/LogGMR_20v13_postprim_700-450.png", device = "png", width = 7, height = 4.5, unit = "in", dpi = 320)
+```
+
+## Get inverse-variance weighted GMC ratio (GMR)
+``` {r get_wtGMR, echo=FALSE, message=FALSE, warning=FALSE}
+# Remove -Inf (from those with mean GMC & lower limit = 0) and create weights
+df_wt_13v7_postprim <- create_wt(df_GMR_13v7_postprim)
+df_wt_13v7_postboost <- create_wt(df_GMR_13v7_postboost)
+df_wt_15v13_postprim <- create_wt(df_GMR_15v13_postprim)
+df_wt_15v13_postboost <- create_wt(df_GMR_15v13_postboost)
+df_wt_20v13_postprim <- create_wt(df_GMR_20v13_postprim)
+df_wt_20v13_postboost <- create_wt(df_GMR_20v13_postboost)
+
+
+# Get inverse variance weighted average and its variance
+df_wtGMR_13v7_postprim <- get_wtGMR(df_GMR_13v7_postprim, df_wt_13v7_postprim)
+df_wtGMR_13v7_postboost <- get_wtGMR(df_GMR_13v7_postboost, df_wt_13v7_postboost)
+df_wtGMR_15v13_postprim <- get_wtGMR(df_GMR_15v13_postprim, df_wt_15v13_postprim)
+df_wtGMR_15v13_postboost <- get_wtGMR(df_GMR_15v13_postboost, df_wt_15v13_postboost)
+df_wtGMR_20v13_postprim <- get_wtGMR(df_GMR_20v13_postprim, df_wt_20v13_postprim)
+df_wtGMR_20v13_postboost <- get_wtGMR(df_GMR_20v13_postboost, df_wt_20v13_postboost)
+
+
+# Patch NA for serotypes with no logGMR info at all once -Inf are removed (can happen when no. of studies included are small)
+df_wtGMR_13v7_postprim <- patch_NA(df_wtGMR_13v7_postprim, vec_13st)
+df_wtGMR_13v7_postboost <- patch_NA(df_wtGMR_13v7_postboost, vec_13st)
+df_wtGMR_15v13_postprim <- patch_NA(df_wtGMR_15v13_postprim, vec_13st)
+df_wtGMR_15v13_postboost <- patch_NA(df_wtGMR_15v13_postboost, vec_13st)
+df_wtGMR_20v13_postprim <- patch_NA(df_wtGMR_20v13_postprim, vec_13st)
+df_wtGMR_20v13_postboost <- patch_NA(df_wtGMR_20v13_postboost, vec_13st)
+
+
+# Ok to save
+saveRDS(df_wtGMR_13v7_postprim, "./_results/df_wtGMR_13v7_postprim_n5_13st.RDS")
+saveRDS(df_wtGMR_13v7_postboost, "./_results/df_wtGMR_13v7_postboost_n5_13st.RDS")
+saveRDS(df_wtGMR_15v13_postprim, "./_results/df_wtGMR_15v13_postprim_n9_13st.RDS")
+saveRDS(df_wtGMR_15v13_postboost, "./_results/df_wtGMR_15v13_postboost_n11_13st.RDS")
+saveRDS(df_wtGMR_20v13_postprim, "./_results/df_wtGMR_20v13_postprim_n3_13st.RDS")
+saveRDS(df_wtGMR_20v13_postboost, "./_results/df_wtGMR_20v13_postboost_n4_13st.RDS")
+
+
+
+# Combine post-primary & post-boost wtGMR
+df_wtGMR_13v7 <- bind_df(df_wtGMR_13v7_postprim %>% mutate(dose_describe = "post-primary"), 
+                         df_wtGMR_13v7_postboost %>% mutate(dose_describe = "post-booster")) %>% mutate(Comparison = "PCV13 vs PCV7")
+df_wtGMR_15v13 <- bind_df(df_wtGMR_15v13_postprim %>% mutate(dose_describe = "post-primary"), 
+                          df_wtGMR_15v13_postboost %>% mutate(dose_describe = "post-booster")) %>% mutate(Comparison = "PCV15 vs PCV13")
+df_wtGMR_20v13 <- bind_df(df_wtGMR_20v13_postprim %>% mutate(dose_describe = "post-primary"), 
+                          df_wtGMR_20v13_postboost %>% mutate(dose_describe = "post-booster")) %>% mutate(Comparison = "PCV20 vs PCV13")
+
+
+# Combine 13v7 and 20v13
+df_wtGMR <- rbind(df_wtGMR_13v7 %>% filter(Serotype %in% vec_7st), # focus on pcv7 serotypes for 13v7
+                  df_wtGMR_20v13 %>% filter(Serotype %in% vec_13st), # focus on pcv13 serotypes for 20v13
+                  df_wtGMR_15v13 %>% filter(Serotype %in% vec_13st)) %>% # focus on pcv13 serotypes for 15v13
+  mutate(dose_describe = as.factor(dose_describe),
+         dose_describe = fct_relevel(dose_describe, c("post-primary", "post-booster")),
+         Comparison = as.factor(Comparison),
+         Comparison = fct_relevel(Comparison, c("PCV13 vs PCV7", "PCV15 vs PCV13", "PCV20 vs PCV13")),
+         uci = LogGMR + 1.96*se_LogGMR,
+         lci = LogGMR - 1.96*se_LogGMR)
+
+# Plot weighted GMR
+plot_wtGMR.7st <- ggplot(df_wtGMR %>% filter(Serotype %in% vec_7st)) +
+  geom_pointrange(aes(x = Serotype, y = LogGMR, ymax = uci, ymin = lci, 
+                      col = Comparison, group = Comparison), position = position_dodge2(width = 0.5)) +
+  geom_hline(yintercept = log(1), lty = "dashed") +
+  scale_colour_manual(values = c("gold3", "blue3", "darkviolet")) +
+  labs(y = "Inverse-variance weighted average of log-GMR") +
+  theme(strip.background = element_rect(fill = "white", colour = "white"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank(),
+        legend.position = "bottom") +
+  facet_grid(dose_describe~Comparison)
+
+plot_wtGMR.13st <- ggplot(df_wtGMR %>% filter(Serotype %in% vec_pcv13.6st,
+                                              Comparison != "PCV13 vs PCV7")) +
+  geom_pointrange(aes(x = Serotype, y = LogGMR, ymax = uci, ymin = lci, 
+                      col = Comparison, group = Comparison), size = 0.35, position = position_dodge2(width = 0.5)) +
+  geom_hline(yintercept = log(1), lty = "dashed") +
+  scale_colour_manual(values = c("blue3", "darkviolet")) +
+  labs(y = "Inverse-variance weighted average of log-GMR") +
+  theme(strip.background = element_rect(fill = "white", colour = "white"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank(),
+        legend.position = "bottom") +
+  facet_grid(dose_describe~Comparison)
+
+# Check and save plots
+plot_wtGMR.7st
+plot_wtGMR.13st
+# ggsave(plot_wtGMR.7st, filename = "_figures/_suppl/inv-var-wtLogGMR.7st_750-500.png",
+#        device = "png", width = 7.5, height = 5, unit = "in", dpi = 320)
+# ggsave(plot_wtGMR.13st, filename = "_figures/_suppl/inv-var-wtLogGMR.13st_650-575.png",
+#        device = "png", width = 6.5, height = 5.75, unit = "in", dpi = 320)
+```

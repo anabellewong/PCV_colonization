@@ -1,0 +1,164 @@
+---
+title: "Fitting INLA models using Israel data"
+author: "Anabelle Wong"
+date: "2024-02-22"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+list_packages <- c("readxl", "tidyverse", "INLA", "ggplot2")
+for(package_i in list_packages){
+  suppressPackageStartupMessages(library(package_i, character.only = TRUE))
+}
+
+# Set theme
+theme_set(theme_bw())
+
+# Readin in functions
+source("./_functions/inclusion_IgGmonth.R")
+source("./_functions/sort_colonization.R")
+source("./_functions/prep_dataINLA.R")
+source("./_functions/fit_INLA.R")
+source("./_functions/pluck_estINLA.R")
+
+# Set vector of serotypes of interest
+vec_7st <- c("4", "6B", "9V", "14", "18C", "19F", "23F")
+vec_pcv13.6st <- c("1", "3", "5", "6A", "7F", "19A")
+vec_13st <- c(vec_7st, vec_pcv13.6st)
+
+```
+
+## Preprocess Israel data
+``` {r preprocess_Isratrid, echo=FALSE, message=FALSE}
+# Checking full data
+Isratrid_Export <- read_excel("./_data/CONFIDENTIAL//Isratrid_Export.xlsx")
+
+# Log-transform IgG concentration and get colonization for included subjects
+# based on IgG measurement at the selected month (7m or 13m)
+ls_7m <- inclusion_IgGmonth(Isratrid_Export, IgG_month = 7)
+ls_13m <- inclusion_IgGmonth(Isratrid_Export, IgG_month = 13)
+vec_subject_7m <- unique(ls_7m[["df_colonization"]]$Study_key)
+vec_subject_13m <- unique(ls_13m[["df_colonization"]]$Study_key)
+
+# Sort data and censor subsequent same-serotype colonization such that only 
+# new acquisitions are included 
+ls_data_7m <- NULL
+ls_data_13m <- NULL
+for(nm in vec_subject_7m){
+  ls_data_7m[[nm]] <- sort_colonization(ls_7m[["df_colonization"]], subject_id = nm, vec_13st, ls_7m[["df_aby"]])
+}
+for(nm in vec_subject_13m){
+  ls_data_13m[[nm]] <- sort_colonization(ls_13m[["df_colonization"]], subject_id = nm, vec_13st, ls_13m[["df_aby"]])
+}
+
+# Check if results for different cases are correctly censored
+# Seems ok, turn into data frame
+df_data_7m <- bind_rows(ls_data_7m)
+df_data_13m <- bind_rows(ls_data_13m)
+rm(ls_data_7m)
+rm(ls_data_13m)
+
+# Focus on defined observation period and get complete lines
+df_colonization_7m.7_24 <- df_data_7m %>% filter(Age_in_months >= 7 & Age_in_months <= 24) %>% 
+  mutate(Serotype = as.factor(Serotype), Serotype = fct_relevel(Serotype, vec_13st))
+df_colonization_13m.13_24 <- df_data_13m %>% filter(Age_in_months >= 13 & Age_in_months <= 24) %>% 
+  mutate(Serotype = as.factor(Serotype), Serotype = fct_relevel(Serotype, vec_13st))
+
+df_colonization_7m.7_24 <- df_colonization_7m.7_24 %>% na.omit()
+df_colonization_13m.13_24 <- df_colonization_13m.13_24 %>% na.omit()
+
+# Prepare data for fitting INLA model
+df_INLA_7m_7_24 <- prep_dataINLA(df_colonization_7m.7_24, IgG_month = 7)
+df_INLA_13m_13_24 <- prep_dataINLA(df_colonization_13m.13_24, IgG_month = 13)
+```
+
+## Fit INLA model
+``` {r fit_INLA, echo=FALSE, message=FALSE}
+# Set uninformative priors
+prior_fixed<-list(mean.intercept = 0.00, prec.intercept = (1.00/(100.00^2)),  #\beta_0 ~ N(0.00, 100.00^2)
+                  mean = 0.00, prec = (1.00/(100.00^2)))                      #\beta_j ~ N(0.00, 100.00^2); j=1,...,p
+prior_hyper<-list(theta = list(prior = "normal", param = c(0.00, (1.00/(100.00^2)))))  #ln(r) ~ N(0.00, 100.00^2)
+
+
+# Fit four models to data with 7m IgG and observation period 7-24m
+m1_INLA_7m_7_24 <- fit_INLA(df_INLA_7m_7_24, mod = 1)
+m2_INLA_7m_7_24 <- fit_INLA(df_INLA_7m_7_24, mod = 2)
+m3_INLA_7m_7_24 <- fit_INLA(df_INLA_7m_7_24, mod = 3)
+m4_INLA_7m_7_24 <- fit_INLA(df_INLA_7m_7_24, mod = 4)
+
+# Fit four models to data with 13m IgG and observation period 13-24m
+m1_INLA_13m_13_24 <- fit_INLA(df_INLA_13m_13_24, mod = 1)
+m2_INLA_13m_13_24 <- fit_INLA(df_INLA_13m_13_24, mod = 2)
+m3_INLA_13m_13_24 <- fit_INLA(df_INLA_13m_13_24, mod = 3)
+m4_INLA_13m_13_24 <- fit_INLA(df_INLA_13m_13_24, mod = 4)
+```
+
+## Extract estimates from INLA model
+``` {r fit_INLA, echo=FALSE, message=FALSE}
+# Extract estimates from all models
+est_m1_INLA_7m_7_24 <- pluck_estINLA(m1_INLA_7m_7_24, M = 1, vec_13st) %>% mutate(data = "post-primary, obs 7-24m")
+est_m2_INLA_7m_7_24 <- pluck_estINLA(m2_INLA_7m_7_24, M = 2, vec_13st) %>% mutate(data = "post-primary, obs 7-24m")
+est_m3_INLA_7m_7_24 <- pluck_estINLA(m3_INLA_7m_7_24, M = 3, vec_13st) %>% mutate(data = "post-primary, obs 7-24m")
+est_m4_INLA_7m_7_24 <- pluck_estINLA(m4_INLA_7m_7_24, M = 4, vec_13st) %>% mutate(data = "post-primary, obs 7-24m")
+
+est_m1_INLA_13m_13_24 <- pluck_estINLA(m1_INLA_13m_13_24, M = 1, vec_13st) %>% mutate(data = "post-booster, obs 13-24m")
+est_m2_INLA_13m_13_24 <- pluck_estINLA(m2_INLA_13m_13_24, M = 2, vec_13st) %>% mutate(data = "post-booster, obs 13-24m")
+est_m3_INLA_13m_13_24 <- pluck_estINLA(m3_INLA_13m_13_24, M = 3, vec_13st) %>% mutate(data = "post-booster, obs 13-24m")
+est_m4_INLA_13m_13_24 <- pluck_estINLA(m4_INLA_13m_13_24, M = 4, vec_13st)%>% mutate(data = "post-booster, obs 13-24m")
+
+# Organize estimates from models 1 & 2 (non-ethnicity specific)
+est_st <- rbind(est_m1_INLA_7m_7_24,
+                est_m2_INLA_7m_7_24,
+                # est_m1_INLA_7m_13_24,
+                # est_m2_INLA_7m_13_24,
+                est_m1_INLA_13m_13_24,
+                est_m2_INLA_13m_13_24) %>% 
+  mutate(serotype = fct_relevel(as.factor(serotype), vec_13st),
+         data = fct_relevel(as.factor(data),
+                            c("post-primary, obs 7-24m", 
+                              # "post-primary, obs 13-24m",
+                              "post-booster, obs 13-24m")))
+
+# Organize estimates from models 3 & 4 (ethnicity specific)
+est_st.ethnic <- rbind(est_m3_INLA_7m_7_24,
+                       est_m4_INLA_7m_7_24,
+                       # est_m3_INLA_7m_13_24,
+                       # est_m4_INLA_7m_13_24,
+                       est_m3_INLA_13m_13_24,
+                       est_m4_INLA_13m_13_24) %>%
+  mutate(serotype = fct_relevel(as.factor(serotype), vec_13st),
+         data = fct_relevel(as.factor(data),
+                            c("post-primary, obs 7-24m", 
+                              # "post-primary, obs 13-24m",
+                              "post-booster, obs 13-24m")))
+
+# Saev results
+saveRDS(est_st, "./_results/est_st_13st.RDS")
+saveRDS(est_st.ethnic, "./_results/est_st.ethnic_13st.RDS")
+
+
+# Plot estimates
+p1 <- ggplot(est_st) +
+  geom_pointrange(aes(x = serotype, y = mean_b, ymax = upper, ymin = lower),
+                  position = position_dodge(width = 0.2)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(x = "Serotype", y = "Mean b1 estimate") +
+  facet_grid(mod ~ data) +
+  theme(strip.background = element_rect(fill = "white", colour = "white"))
+p2 <- ggplot(est_st.ethnic) +
+  geom_pointrange(aes(x = serotype, y = mean_b, ymax = upper, ymin = lower, col = ethnicity),
+                  position = position_dodge2(width = 0.5)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(x = "Serotype", y = "Mean b1 estimate", col = "Ethnicity") +
+  facet_grid(mod ~ data) +
+  theme(strip.background = element_rect(fill = "white", colour = "white"),
+        legend.position = "bottom",
+        axis.title.y = element_blank())
+
+p1
+p2
+
+```

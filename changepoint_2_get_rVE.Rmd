@@ -1,0 +1,209 @@
+---
+title: "plots"
+author: "Anabelle Wong"
+date: "2024-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readxl)
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+
+theme_set(theme_bw())
+
+# Set vector of serotype
+vec_7st <- c("4", "6B", "9V", "14", "18C", "19F", "23F")
+vec_pcv13.6st <- c("1", "3", "5", "6A", "7F", "19A")
+
+vec_serotype <- c(vec_7st, vec_pcv13.6st)
+
+# Get serotype mapping
+df_map <- data.frame(serotype = vec_serotype) %>% 
+  mutate(st.index = as.numeric(as.factor(serotype)),
+         PCV = ifelse(serotype %in% vec_7st, "In PCV7", "Only In PCV13"))
+
+# Get total # of serotypes
+n_serotype <- length(vec_serotype)
+```
+
+
+## Get model results
+```{r get_mod_res, echo=FALSE}
+# Raed in model object
+mod3 <- readRDS("./_models/mod3.RDS")
+
+# A function to get predicted risks
+predict_col <- function(mod, st.index, mean_logGMC, sd_logGMC){
+  # Take one serotype, get the 30000 posterior for b0
+  vec_b0 <- mod$posterior_samples.all[ , st.index]
+  vec_logGMC <- rnorm(length(vec_b0), mean = mean_logGMC, sd = sd_logGMC)
+  
+  # Get b2 (b2 = b1*logGMC for GMC after change point)
+  vec_b1 <- mod$posterior_samples.all[ ,n_serotype + st.index]
+  delta_logGMC <- vec_logGMC - mod$posterior_samples.all[ , 2*n_serotype + st.index]
+  vec_b2 <- vec_b1 * delta_logGMC
+
+  # Is the GMC above change point?
+  vec_cp <- vec_logGMC > mod$posterior_samples.all[ , 2*n_serotype + st.index] 
+  
+  # Get the log_pred_col
+  log_pred_col <- vec_b2 * vec_cp + vec_b0
+  
+  return(log_pred_col)
+}
+```
+
+
+## Estimate RR from postboost IgG (trial data)
+```{r estim_RR, echo=FALSE}
+
+# Which comparison?
+analysis <- "13v7"
+# analysis <- "15v13"
+# analysis <- "20v13"
+
+# Get trial IgG data
+if(analysis == "13v7"){
+  df_postboost <- read_excel("./_data/df_13v7_postboost_n5.xlsx")
+  PCV1 <- "PCV7"
+  PCV2 <- "PCV13"
+  Comparison <- "PCV13 vs PCV7"
+} 
+if(analysis == "15v13"){
+  df_postboost <- read_excel("./_data/df_15v13_postboost_n11_ELISA.xlsx")
+  PCV1 <- "PCV13"
+  PCV2 <- "PCV15"
+  Comparison <- "PCV15 vs PCV13"
+}
+if(analysis == "20v13"){
+  df_postboost <- read_excel("./_data/df_20v13_postboost_n4.xlsx")
+  PCV1 <- "PCV13"
+  PCV2 <- "PCV20"
+  Comparison <- "PCV20 vs PCV13"
+}
+
+
+# log-transform IgG levels
+df_postboost$lower_limit[which(df_postboost$lower_limit==0)] <- 0.01
+df_postboost$upper_limit[which(df_postboost$upper_limit==0)] <- 0.01
+df_postboost$GMC[which(df_postboost$GMC==0)] <- 0.01
+df_postboost <- df_postboost %>% 
+  mutate(across(c(GMC:lower_limit), function(x) log(x)),
+         se_logGMC = abs(upper_limit - lower_limit)/(1.96*2)) %>% 
+  left_join(df_map, by = "serotype")
+
+# Predict RR with model
+ls_RR <- setNames(vector(mode = "list", length = n_serotype), nm = c(1:13))
+set.seed(102405L)
+for(i in 1:n_serotype){
+  data <- df_postboost %>% filter(st.index == i)
+  vec_study <- unique(data$study_id)
+  
+  for(nm in vec_study){
+    d <- data %>% filter(study_id == nm)
+    d1 <- d %>% filter(vaccine == PCV1)
+    d2 <- d %>% filter(vaccine == PCV2)
+    
+    # Predict log-risk from model curve
+    log_risk_1 <- predict_col(mod3, st.index = i, mean_logGMC = d1$GMC, sd_logGMC = d1$se_logGMC)
+    log_risk_2 <- predict_col(mod3, st.index = i, mean_logGMC = d2$GMC, sd_logGMC = d2$se_logGMC)
+    RR <- log_risk_2 - log_risk_1
+    
+    # Get mean & 95ci from 30000 iter
+    vec_res <- c(quantile(RR, c(0.5, 0.025, 0.975)), sd(RR))
+    names(vec_res) <- c("mean", "lci", "uci", "sd")
+    ls_RR[[i]][[nm]] <- vec_res
+  }
+  ls_RR[[i]] <- bind_rows(ls_RR[[i]], .id = "study_id")
+}
+
+df_RR <- bind_rows(ls_RR, .id = "st.index")
+```
+
+## Pool RR across studies using inverse variance weights
+```{r pool_RR, echo=FALSE}
+# inverse-variance weighted average across studies
+df_wtRR <- df_RR %>% 
+  mutate(st.index = as.numeric(st.index),
+         inv_var = 1/(sd^2)) %>% 
+  group_by(st.index) %>% 
+  mutate(total_inv_var = sum(inv_var),
+         wt_inv = inv_var/ total_inv_var,
+         wt_LogRR = mean*wt_inv) %>% 
+  summarise(sum_wt_LogRR = sum(wt_LogRR),
+            var_wt_LogRR = 1/total_inv_var,
+            se_wt_LogRR = sqrt(var_wt_LogRR),
+            wt_LogRR_uci = sum_wt_LogRR + 1.96*se_wt_LogRR,
+            wt_LogRR_lci = sum_wt_LogRR - 1.96*se_wt_LogRR) %>% 
+  unique() %>% 
+  left_join(df_map, by = "st.index") %>% 
+  mutate(serotype = as.factor(serotype),
+         serotype = fct_relevel(serotype, vec_serotype)) %>% 
+  select(serotype, sum_wt_LogRR, wt_LogRR_lci, wt_LogRR_uci)
+df_wtRR <- df_wtRR[,-1]
+names(df_wtRR) <- c("serotype", "LogRR", "lci_LogRR", "uci_LogRR")
+df_wtRR <- df_wtRR %>% mutate(Comparison = Comparison)
+
+# Save results
+file_name <- paste0("_results/df_rVE_changepoint_", analysis, ".RDS")
+saveRDS(df_wtRR, file_name)
+```
+
+
+## Plot results and compare with previous estimates
+```{r plot_res, echo=FALSE}
+# Raed in change point model results
+df_RR_cp <- rbind(readRDS("./_results/df_rVE_changepoint_13v7.RDS"),
+                  readRDS("./_results/df_rVE_changepoint_20v13.RDS"),
+                  readRDS("./_results/df_rVE_changepoint_15v13.RDS")) %>% 
+  mutate(model = "Change point")
+
+# Raed in linear model results
+df_RR_linear <- readRDS("./_results/df_rVE_st_13st.RDS") %>% 
+  filter(data == "post-booster, obs 13-24m",
+         mod == "Ethnic,logGMC") %>% 
+ select(Comparison, serotype, LogRR, uci_LogRR, lci_LogRR) %>% mutate(model = "Linear")
+
+
+# Combine estimates
+df_RR <- df_RR_cp %>% 
+  rbind(df_RR_linear)
+  
+
+# Overlay linear model estimates and change point model estimates
+vec_col <- c("steelblue2", "navyblue")
+p1 <- ggplot(df_RR %>% filter(serotype %in% vec_7st), 
+            aes(x = serotype, y = LogRR, ymax = uci_LogRR, ymin = lci_LogRR, col = model)) +
+  geom_pointrange(alpha = 0.8, position = position_dodge2(width = 0.5)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_colour_manual(values = vec_col) +
+  labs(x = "Serotype", y = "log-RR", col = "Model") +
+  theme(strip.background = element_rect(fill = "white", colour = "white"),
+        panel.grid = element_blank(),
+        legend.position = "top") +
+  facet_wrap(~Comparison, scales = "free")
+
+p2 <- ggplot(df_RR %>% filter(serotype %in% vec_pcv13.6st,
+                              Comparison != "PCV13 vs PCV7"), 
+            aes(x = serotype, y = LogRR, ymax = uci_LogRR, ymin = lci_LogRR, col = model)) +
+  geom_pointrange(alpha = 0.8, position = position_dodge2(width = 0.5)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_colour_manual(values = vec_col) +
+  labs(x = "Serotype", y = "log-RR", col = "Model") +
+  theme(strip.background = element_rect(fill = "white", colour = "white"),
+        panel.grid = element_blank(),
+        legend.position = "top") +
+  facet_wrap(~Comparison, scales = "free")
+
+# Check and save plots
+p1
+p2
+# ggsave(p1, filename = "_figures/_suppl/RR_7st_cp-linear_9-3.5.png", device = "png",
+#        width = 9, height = 3.5, unit = "in", dpi = 320)
+# ggsave(p2, filename = "_figures/_suppl/RR_6addit_cp-linear_7-3.5.png", device = "png",
+#        width = 7, height = 3.5, unit = "in", dpi = 320)
+```

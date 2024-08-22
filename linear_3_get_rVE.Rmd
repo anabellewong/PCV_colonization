@@ -1,0 +1,143 @@
+---
+title: "Calculating relative VE for PCV2 vs. PCV1"
+author: "Anabelle Wong"
+date: "2024-02-22"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+list_packages <- c("readxl", "tidyverse", "ggplot2", "patchwork")
+for(package_i in list_packages){
+  suppressPackageStartupMessages(library(package_i, character.only = TRUE))
+}
+
+# Set theme
+theme_set(theme_bw())
+
+# Readin in functions
+source("./_functions/get_rVE.R")
+
+# Set vector of serotypes of interest
+vec_7st <- c("4", "6B", "9V", "14", "18C", "19F", "23F")
+vec_pcv13.6st <- c("1", "3", "5", "6A", "7F", "19A")
+vec_13st <- c(vec_7st, vec_pcv13.6st)
+
+```
+
+## How to calculate relative VE?
+* Using the formula: log(RR) = b1 * log (GMR)
+* b1 is the serotype-specific, ethnicity-specific coefficient from Bayesian hierarchical model
+* log(GMR) is the GMR from immunigenicity summary data from trials
+``` {r get_parts, echo=FALSE, message=FALSE}
+# Read in b1 estimates from two models
+est_st <- readRDS("./_results/est_st_13st.RDS")
+est_st.ethnic <- readRDS("./_results/est_st.ethnic_13st.RDS")
+
+# Read in GMR
+df_GMR_13v7_postprim <- readRDS("./_results/df_wtGMR_13v7_postprim_n5_13st.RDS")
+df_GMR_13v7_postboost <- readRDS("./_results/df_wtGMR_13v7_postboost_n5_13st.RDS")
+df_GMR_15v13_postprim <- readRDS("./_results/df_wtGMR_15v13_postprim_n9_13st.RDS")
+df_GMR_15v13_postboost <- readRDS("./_results/df_wtGMR_15v13_postboost_n11_13st.RDS")
+df_GMR_20v13_postprim <- readRDS("./_results/df_wtGMR_20v13_postprim_n3_13st.RDS")
+df_GMR_20v13_postboost <- readRDS("./_results/df_wtGMR_20v13_postboost_n4_13st.RDS")
+
+
+# Get relative VE for post-primary
+df_rVE_13v7_postprim_st <- get_rVE(est_st, df_GMR_13v7_postprim, vec_13st, vax_dose = "postprim")
+df_rVE_13v7_postprim_st.ethnic <- get_rVE(est_st.ethnic, df_GMR_13v7_postprim, vec_13st, vax_dose = "postprim")
+df_rVE_15v13_postprim_st <- get_rVE(est_st, df_GMR_15v13_postprim, vec_13st, vax_dose = "postprim")
+df_rVE_15v13_postprim_st.ethnic <- get_rVE(est_st.ethnic, df_GMR_15v13_postprim, vec_13st, vax_dose = "postprim")
+df_rVE_20v13_postprim_st <- get_rVE(est_st, df_GMR_20v13_postprim, vec_13st, vax_dose = "postprim")
+df_rVE_20v13_postprim_st.ethnic <- get_rVE(est_st.ethnic, df_GMR_20v13_postprim, vec_13st, vax_dose = "postprim")
+
+# Get relative VE for post-boost
+df_rVE_13v7_postboost_st <- get_rVE(est_st, df_GMR_13v7_postboost, vec_13st, vax_dose = "postboost")
+df_rVE_13v7_postboost_st.ethnic <- get_rVE(est_st.ethnic, df_GMR_13v7_postboost, vec_13st, vax_dose = "postboost")
+df_rVE_15v13_postboost_st <- get_rVE(est_st, df_GMR_15v13_postboost, vec_13st, vax_dose = "postboost")
+df_rVE_15v13_postboost_st.ethnic <- get_rVE(est_st.ethnic, df_GMR_15v13_postboost, vec_13st, vax_dose = "postboost")
+df_rVE_20v13_postboost_st <- get_rVE(est_st, df_GMR_20v13_postboost, vec_13st, vax_dose = "postboost")
+df_rVE_20v13_postboost_st.ethnic <- get_rVE(est_st.ethnic, df_GMR_20v13_postboost, vec_13st, vax_dose = "postboost")
+
+
+# Combine relative VE into one data frame
+# Linear model (1): random effect for serotype
+df_rVE_13v7_st <- rbind(df_rVE_13v7_postprim_st, df_rVE_13v7_postboost_st) %>% mutate(Comparison = "PCV13 vs PCV7")
+df_rVE_15v13_st <- rbind(df_rVE_15v13_postprim_st, df_rVE_15v13_postboost_st) %>% mutate(Comparison = "PCV15 vs PCV13")
+df_rVE_20v13_st <- rbind(df_rVE_20v13_postprim_st, df_rVE_20v13_postboost_st) %>% mutate(Comparison = "PCV20 vs PCV13")
+df_rVE_st <- rbind(df_rVE_13v7_st, df_rVE_15v13_st, df_rVE_20v13_st) %>% 
+  select(mod, data, serotype, LogRR, uci_LogRR, lci_LogRR, Comparison)
+
+# Linear model (2): random effect for serotype & ethnicity
+df_rVE_13v7_st.ethnic <- rbind(df_rVE_13v7_postprim_st.ethnic, df_rVE_13v7_postboost_st.ethnic) %>% mutate(Comparison = "PCV13 vs PCV7")
+df_rVE_15v13_st.ethnic <- rbind(df_rVE_15v13_postprim_st.ethnic, df_rVE_15v13_postboost_st.ethnic) %>% mutate(Comparison = "PCV15 vs PCV13")
+df_rVE_20v13_st.ethnic <- rbind(df_rVE_20v13_postprim_st.ethnic, df_rVE_20v13_postboost_st.ethnic) %>% mutate(Comparison = "PCV20 vs PCV13")
+df_rVE_st.ethnic <- rbind(df_rVE_13v7_st.ethnic, df_rVE_15v13_st.ethnic, df_rVE_20v13_st.ethnic) %>% 
+  select(mod, data, serotype, ethnicity, LogRR, uci_LogRR, lci_LogRR, Comparison)
+```
+
+
+## Savea nd plot relative VE
+``` {r save_res, echo=FALSE, message=FALSE}
+
+# Save results
+saveRDS(df_rVE_st, "./_results/df_rVE_st_13st.RDS")
+saveRDS(df_rVE_st.ethnic, "./_results/df_rVE_st.ethnic_13st.RDS")
+
+# Plot results
+plot_rVE <- function(df_rVE, ethnic = c(TRUE, FALSE)){
+  if(ethnic == TRUE){
+    p <- ggplot(df_rVE) +
+      geom_hline(yintercept = 1, linetype = "dashed", col = "grey50") +
+      geom_pointrange(aes(x = serotype, y = exp(LogRR), ymax = exp(uci_LogRR), ymin = exp(lci_LogRR), 
+                          shape = ethnicity, col = Comparison, group = Comparison),
+                      position = position_dodge2(width = 0.5)) +
+      scale_shape_manual(values = c(21, 19)) +
+      labs(x = "Serotype", y = "Reslative risk", shape = "Ethnicity", col = "Comparison")
+  }
+  else{
+    p <- ggplot(df_rVE) +
+      geom_hline(yintercept = 1, linetype = "dashed", col = "grey50") +
+      geom_pointrange(aes(x = serotype, y = exp(LogRR), ymax = exp(uci_LogRR), ymin = exp(lci_LogRR),
+                          col = Comparison),
+                      position = position_dodge2(width = 0.5)) +
+      labs(x = "Serotype", y = "Reslative risk", col = "Comparison")
+  }
+  p +
+    scale_colour_manual(values = c("gold3", "blue3", "darkviolet")) +
+    scale_y_log10() +
+    facet_wrap(~data, nrow = 2) +
+    theme(strip.background = element_rect(fill = "white", colour = "white"),
+          legend.position = "bottom",
+          panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank())
+}
+
+# Plot for model with ethnicity
+df_rVE_st.ethnic <- rbind(df_rVE_13v7_st.ethnic %>% filter(serotype %in% vec_7st),
+                          df_rVE_15v13_st.ethnic,
+                          df_rVE_20v13_st.ethnic) %>% 
+  filter(mod == "Ethnic,logGMC,st_ethnic,agec") %>% 
+  mutate(Comparison = as.factor(Comparison),
+         Comparison = fct_relevel(Comparison, c("PCV13 vs PCV7", "PCV15 vs PCV13", "PCV20 vs PCV13")))
+p1 <- plot_rVE(df_rVE_st.ethnic, ethnic = TRUE)
+
+# Plot for model without ethnicity
+df_rVE_st <- rbind(df_rVE_13v7_st %>% filter(serotype %in% vec_7st),
+                   df_rVE_15v13_st,
+                   df_rVE_20v13_st) %>% 
+  filter(mod == "Ethnic,logGMC,agec") %>% 
+  mutate(Comparison = as.factor(Comparison),
+         Comparison = fct_relevel(Comparison, c("PCV13 vs PCV7", "PCV15 vs PCV13", "PCV20 vs PCV13")))
+p2 <- plot_rVE(df_rVE_st, ethnic = FALSE)
+
+# Check and save plots
+p1
+p2
+# ggsave(p1, filename = "_figures/_suppl/linear_rVE.ethnic_850-600.png", device = "png",
+#        width = 8.5, height = 6, unit = "in", dpi = 320)
+# ggsave(p2, filename = "_figures/_suppl/linear_rVE.st_850-600.png", device = "png",
+#        width = 7, height = 6, unit = "in", dpi = 320)
+```

@@ -1,0 +1,38 @@
+---
+title: "jags"
+author: "Dan Weinberger"
+date: '2024-03-14'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rjags)
+library(rmeta)
+library(HDInterval)
+library(rstan)
+library(dplyr)
+```
+
+
+## Read in postboost data from Israel study
+```{r get_data, echo=FALSE}
+a1 <- read.csv('./_data/CONFIDENTIAL/df_colonization_13m.13_24.csv')
+
+a1 %>% group_by(Serotype, Ethnicity) %>%
+  summarize(N=n(), ncol=sum(Colonization))
+```
+
+
+## Run JAGS model: Hierarchical model
+```{r run_rjags, echo=FALSE}
+a1 <- a1 %>%
+  mutate(st.index = as.numeric(as.factor(Serotype)),
+         bedouin = if_else(Ethnicity=='Bedouin',1,0))
+
+source('./_functions/hierarchical_log.R')
+mod3 <- hierarchical_model_log(log_gmc_mean= mean(a1$log_GMC), 
+                               log_gmc_prec= 1/(var(a1$log_GMC)*2)
+                               )
+saveRDS(mod3, "./_models/mod3.RDS")
+```
