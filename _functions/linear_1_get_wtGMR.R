@@ -1,6 +1,13 @@
 ################################################################################
 # This script contains functions for getting pooled estimates for Geometric 
-# Mean Concentration Ratio (GMR)
+# Mean Concentration Ratio (GMR). The functions include:
+#
+# transform_GMC;
+# get_GMR;
+# create_wt;
+# get_wtGMR;
+# patch_NA; and
+# bind_df.
 ################################################################################
 
 # Log-transform GMC and get se
@@ -13,6 +20,10 @@ transform_GMC <- function(GMC_data, vec_serotype){
            se_LogGMC = (LogUCL - LogLCL) / (1.96*2))
   return(df)
 }
+################################################################################
+# End of function
+################################################################################
+
 
 # Rearrange the GMC data for vaccine2 & vaccine1 to get GMR
 get_GMR <- function(df, vaccine2, vaccine1, vec_st){
@@ -33,6 +44,10 @@ get_GMR <- function(df, vaccine2, vaccine1, vec_st){
            lci = LogGMR - 1.96*se_LogGMR)
   return(df_GMR)
 }
+################################################################################
+# End of function
+################################################################################
+
 
 # Create weights
 create_wt <- function(df_GMR){
@@ -50,6 +65,10 @@ create_wt <- function(df_GMR){
     mutate(wt_inv = inv_var/ sum_inv_var)
   return(df_wt)
 }
+################################################################################
+# End of function
+################################################################################
+
 
 # Get inverse-variance weighted average and its variance
 get_wtGMR <- function(df_GMR, df_wt){
@@ -67,6 +86,10 @@ get_wtGMR <- function(df_GMR, df_wt){
   names(df_wtGMR) <- c("Serotype", "LogGMR", "var_LogGMR", "se_LogGMR")
   return(df_wtGMR)
 }
+################################################################################
+# End of function
+################################################################################
+
 
 # Patch NA for serotypes with no logGMR info at all once -Inf are removed (can happen when no. of studies included are small)
 patch_NA <- function(df_wtGMR, vec_st){
@@ -86,6 +109,10 @@ patch_NA <- function(df_wtGMR, vec_st){
     return(df_wtGMR)
   }
 }
+################################################################################
+# End of function
+################################################################################
+
 
 # Combine post-primary & post-boost wtGMR
 bind_df <- function(df_postprim, df_postpost){
@@ -96,3 +123,6 @@ bind_df <- function(df_postprim, df_postpost){
            uci = LogGMR + 1.96*se_LogGMR,
            lci = LogGMR - 1.96*se_LogGMR)  
 }
+################################################################################
+# End of function
+################################################################################

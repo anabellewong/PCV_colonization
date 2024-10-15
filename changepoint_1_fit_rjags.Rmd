@@ -12,6 +12,9 @@ library(rmeta)
 library(HDInterval)
 library(rstan)
 library(dplyr)
+
+# Read in functions
+source("./_functions/changepoint_1_fit_rjags.R")
 ```
 
 
@@ -32,16 +35,14 @@ a1 <- a1 %>%
 
 
 # change point model with ethnicity-specific baseline colonization risk (run time: 2 hrs on PC)
-source('_functions/hierarchical_log_ethnicitym5.R')
-mod5 <- hierarchical_model_log(log_gmc_mean= mean(a1$log_GMC),
-                               log_gmc_prec= 1/(var(a1$log_GMC)*2))
+mod5 <- hierarchical_model_log_m5(log_gmc_mean= mean(a1$log_GMC),
+                                  log_gmc_prec= 1/(var(a1$log_GMC)*2))
 saveRDS(mod5, "_models/mod5.RDS")
 
 
 # mod5 with flat prior for cp (run time: 2 hrs on PC)
-source('_functions/hierarchical_log_ethnicitym6.R')
-mod6 <- hierarchical_model_log(log_gmc_mean= mean(a1$log_GMC),
-                               log_gmc_prec= 1/(var(a1$log_GMC)*2))
+mod6 <- hierarchical_model_log_m6(log_gmc_mean= mean(a1$log_GMC),
+                                  log_gmc_prec= 1/(var(a1$log_GMC)*2))
 saveRDS(mod6, "_models/mod6.RDS")
 ```
 

@@ -18,11 +18,7 @@ for(package_i in list_packages){
 theme_set(theme_bw())
 
 # Readin in functions
-source("./_functions/inclusion_IgGmonth.R")
-source("./_functions/sort_colonization.R")
-source("./_functions/prep_dataINLA.R")
-source("./_functions/fit_INLA.R")
-source("./_functions/pluck_estINLA.R")
+source("./_functions/linear_2_fit_INLA.R")
 
 # Set vector of serotypes of interest
 vec_7st <- c("4", "6B", "9V", "14", "18C", "19F", "23F")
@@ -158,7 +154,7 @@ p2 <- ggplot(est_st.ethnic) +
         legend.position = "bottom",
         axis.title.y = element_blank())
 
+# Check plots
 p1
 p2
-
 ```

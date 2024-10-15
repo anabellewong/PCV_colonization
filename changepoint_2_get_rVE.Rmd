@@ -15,6 +15,9 @@ library(patchwork)
 
 theme_set(theme_bw())
 
+# Read in functions
+source("./_functions/changepoint_2_get_rVE.R")
+
 # Set vector of serotype
 vec_7st <- c("4", "6B", "9V", "14", "18C", "19F", "23F")
 vec_pcv13.6st <- c("1", "3", "5", "6A", "7F", "19A")
@@ -28,219 +31,67 @@ df_map <- data.frame(serotype = vec_serotype) %>%
 # Get total # of serotypes
 n_serotype <- length(vec_serotype)
 
-# Which model?
-model <- "m5"
-# model <- "m6"
-
-# Which comparison?
-analysis <- "13v7"
-# analysis <- "20v13"
-# analysis <- "15v13"
+# Set vector of comparison
+vec_comparison <- c("PCV13 vs PCV7", "PCV15 vs PCV13", "PCV20 vs PCV13")
 ```
 
 
 ## Get model results
 ```{r get_mod_res, echo=FALSE}
 # Raed in model object
-if(model == "m5"){ mod_object <- readRDS("_models/mod5.RDS") }
-if(model == "m6"){ mod_object <- readRDS("_models/mod6.RDS") }
-
-# model output contains posteriors of
-# b0 (13) starting with index: 1
-# b1 (13) starting with index: n_serotype + 1
-# b3 (13) starting with index: 2*n_serotype + 1
-# cp (13) starting with index: 3*n_serotype + 1
-
-# A function to get predicted risks
-predict_col <- function(mod, st.index, mean_logGMC, sd_logGMC, ethnic = c("jewish", "bedouin")){
-  # Take one serotype, get the 30000 posterior for b0
-  vec_b0 <- mod$posterior_samples.all[ , st.index]
-  vec_logGMC <- rnorm(length(vec_b0), mean = mean_logGMC, sd = sd_logGMC)
-  
-  # Get b3
-  vec_b3 <- mod$posterior_samples.all[ ,2*n_serotype + st.index]
-  
-  # Get b2 (b2 = b1*logGMC for GMC after change point)
-  vec_b1 <- mod$posterior_samples.all[ ,n_serotype + st.index]
-  delta_logGMC <- vec_logGMC - mod$posterior_samples.all[ , 3*n_serotype + st.index]
-  vec_b2 <- vec_b1 * delta_logGMC
-  
-  # Is the GMC above change point?
-  vec_cp <- vec_logGMC > mod$posterior_samples.all[ , 3*n_serotype + st.index] 
-  
-  # Get the log_pred_col
-  if(ethnic == "bedouin"){
-    log_pred_col <- vec_b2 * vec_cp + (vec_b0+vec_b3)
-  }
-  if(ethnic == "jewish"){
-    log_pred_col <- vec_b2 * vec_cp + (vec_b0)
-  }
-  
-  return(log_pred_col)
-}
+m5 <- readRDS("_models/mod5.RDS")
+m6 <- readRDS("_models/mod6.RDS")
 ```
 
 
-## Estimate RR from postboost IgG (trial data)
+## Estimate RR from postboost IgG (summary-level data from head-to-head trials)
 ```{r estim_RR, echo=FALSE}
-# Get trial IgG data
-if(analysis == "13v7"){
-  df_postboost <- read_excel("./_data/df_13v7_postboost_n5.xlsx")
-  PCV1 <- "PCV7"
-  PCV2 <- "PCV13"
-  Comparison <- "PCV13 vs PCV7"
-} 
-if(analysis == "15v13"){
-  df_postboost <- read_excel("./_data/df_15v13_postboost_n11_ELISA.xlsx")
-  PCV1 <- "PCV13"
-  PCV2 <- "PCV15"
-  Comparison <- "PCV15 vs PCV13"
-}
-if(analysis == "20v13"){
-  df_postboost <- read_excel("./_data/df_20v13_postboost_n4.xlsx")
-  PCV1 <- "PCV13"
-  PCV2 <- "PCV20"
-  Comparison <- "PCV20 vs PCV13"
-}
-
+# Read in summary-level immunogenicity data from head-to-head clinical trials
+df_13v7 <- read_excel("./_data/df_13v7_postboost_n5.xlsx")
+df_15v13 <- read_excel("./_data/df_15v13_postboost_n11_ELISA.xlsx")
+df_20v13 <- read_excel("./_data/df_20v13_postboost_n4.xlsx")
+ls_postboost <- setNames(object = list(df_13v7, df_15v13, df_20v13), nm = vec_comparison)
 
 # log-transform IgG levels
-df_postboost$lower_limit[which(df_postboost$lower_limit==0)] <- 0.01
-df_postboost$upper_limit[which(df_postboost$upper_limit==0)] <- 0.01
-df_postboost$GMC[which(df_postboost$GMC==0)] <- 0.01
-df_postboost <- df_postboost %>% 
-  mutate(across(c(GMC:lower_limit), function(x) log(x)),
-         se_logGMC = abs(upper_limit - lower_limit)/(1.96*2)) %>% 
-  left_join(df_map, by = "serotype")
-
-# A function to calculate RR 
-calc_RR <- function(df_postboost, model_object, 
-                    ethnic = c("jewish", "bedouin")){
-  
-  # Create an empty list
-  ls_RR <- setNames(vector(mode = "list", length = n_serotype), nm = c(1:13))
-  
-  set.seed(102405L)
-  for(i in 1:n_serotype){
-    data <- df_postboost %>% filter(st.index == i)
-    vec_study <- unique(data$study_id)
-    
-    for(nm in vec_study){
-      d <- data %>% filter(study_id == nm)
-      d1 <- d %>% filter(vaccine == PCV1) # lower-valency
-      d2 <- d %>% filter(vaccine == PCV2) # higher-valency
-    
-      # Predict log-risk from model object, choosing the ethnic-specific intercept
-      if(ethnic == "bedouin"){
-        log_risk_1 <- predict_col(mod_object, st.index = i, mean_logGMC = d1$GMC, sd_logGMC = d1$se_logGMC, ethnic = "bedouin")
-        log_risk_2 <- predict_col(mod_object, st.index = i, mean_logGMC = d2$GMC, sd_logGMC = d2$se_logGMC, ethnic = "bedouin")
-      }
-      if(ethnic == "jewish"){
-        log_risk_1 <- predict_col(mod_object, st.index = i, mean_logGMC = d1$GMC, sd_logGMC = d1$se_logGMC, ethnic = "jewish")
-        log_risk_2 <- predict_col(mod_object, st.index = i, mean_logGMC = d2$GMC, sd_logGMC = d2$se_logGMC, ethnic = "jewish")
-      }
-      
-      # Calculate RR comparing higher-valency vs. lower-valency PCV
-      RR <- log_risk_2 - log_risk_1
-    
-      # Get mean & 95ci from 30000 iter
-      vec_res <- c(quantile(RR, c(0.5, 0.025, 0.975)), sd(RR))
-      names(vec_res) <- c("mean", "lci", "uci", "sd")
-      ls_RR[[i]][[nm]] <- vec_res
-    }
-    ls_RR[[i]] <- bind_rows(ls_RR[[i]], .id = "study_id")
-  }
-  df_RR <- bind_rows(ls_RR, .id = "st.index") %>% 
-    mutate(st.index = as.numeric(st.index))
-  return(df_RR)
-}
+ls_postboost <- lapply(ls_postboost, log_transform_igg, df_map)
 
 # Jewish & Bedouin share the same slope so RR will be the same
-df_RR <- calc_RR(df_postboost, model_object, ethnic = "jewish")
+ls_RR_m5 <- setNames(object = vector(mode = "list", length = 3), nm = vec_comparison)
+ls_RR_m6 <- setNames(object = vector(mode = "list", length = 3), nm = vec_comparison)
+for(nm in vec_comparison){
+  if(nm == "PCV13 vs PCV7"){ 
+    PCV1 <- "PCV7"
+    PCV2 <- "PCV13"
+  }
+  if(nm == "PCV15 vs PCV13"){ 
+    PCV1 <- "PCV13"
+    PCV2 <- "PCV15"
+  }
+  if(nm == "PCV20 vs PCV13"){ 
+    PCV1 <- "PCV13"
+    PCV2 <- "PCV20"
+  }
+  ls_RR_m5[[nm]] <- calc_RR(ls_postboost[[nm]], mod = m5, ethnic = "jewish")
+  ls_RR_m6[[nm]] <- calc_RR(ls_postboost[[nm]], mod = m6, ethnic = "jewish")
+}
 ```
+
 
 ## Pool RR across studies using inverse variance weights
 ```{r pool_RR, echo=FALSE}
-# A function to get inverse-variance weighted average across studies
-get_wtRR <- function(df_RR, Comparison){
-  df_wtRR <- df_RR %>% 
-  mutate(st.index = as.numeric(st.index),
-         inv_var = 1/(sd^2)) %>% 
-  group_by(st.index) %>% 
-  mutate(total_inv_var = sum(inv_var),
-         wt_inv = inv_var/ total_inv_var,
-         wt_RR = mean*wt_inv) %>% 
-  summarise(sum_wt_RR = sum(wt_RR),
-            var_wt_RR = 1/total_inv_var,
-            se_wt_RR = sqrt(var_wt_RR),
-            wt_RR_uci = sum_wt_RR + 1.96*se_wt_RR,
-            wt_RR_lci = sum_wt_RR - 1.96*se_wt_RR) %>% 
-  unique() %>% 
-  left_join(df_map, by = "st.index") %>% 
-  mutate(serotype = as.factor(serotype),
-         serotype = fct_relevel(serotype, vec_serotype)) %>% 
-  select(serotype, sum_wt_RR, wt_RR_lci, wt_RR_uci, se_wt_RR)
-  df_wtRR <- df_wtRR[,-1]
-  names(df_wtRR) <- c("serotype", "LogRR", "lci_LogRR", "uci_LogRR", "se_LogRR")
-  df_wtRR <- df_wtRR %>% mutate(Comparison = Comparison)
-  return(df_wtRR)
+# Get inverse-variance weighted average across studies
+ls_wtRR_m5 <- setNames(object = vector(mode = "list", length = 3), nm = vec_comparison)
+ls_wtRR_m6 <- setNames(object = vector(mode = "list", length = 3), nm = vec_comparison)
+for(nm in vec_comparison){
+  ls_wtRR_m5[[nm]] <- get_wtRR(ls_RR_m5[[nm]], Comparison = nm)
+  ls_wtRR_m6[[nm]] <- get_wtRR(ls_RR_m6[[nm]], Comparison = nm)
 }
-
-df_wtRR <- get_wtRR(df_RR, Comparison)
+df_wtRR_m5 <- bind_rows(ls_wtRR_m5, .id = "Comparison")
+df_wtRR_m6 <- bind_rows(ls_wtRR_m6, .id = "Comparison")
 
 # Save results
-file_name <- paste0("_results/df_rVE_changepoint_", analysis, "_", model, ".RDS")
-saveRDS(df_wtRR, file_name)
-```
-
-
-## Plot RR from each study alongside pooled RR
-```{r plot_inv_wt, echo=FALSE}
-# # Manage individual studies' estimates for plotting
-# df_rr <- df_RR %>%
-#   left_join(df_map, by = "st.index") %>% 
-#   select(-c(st.index, PCV))  %>% 
-#   mutate(stat = "individual")
-# if(analysis == "13v7"){ df_rr <- df_rr %>% mutate(study_no = substr(study_id, 6, 11)) }
-# if(analysis == "15v13"){ df_rr <- df_rr %>% mutate(study_no = substr(study_id, 5, 16),
-#                                                    study_no = ifelse(study_no == "2987972_lot1", "2987972(1)",
-#                                                                      ifelse(study_no == "2987972_lot2", "2987972(2)", study_no))) }
-# if(analysis == "20v13"){ df_rr <- df_rr %>% mutate(study_no = substr(study_id, 5, 11)) }
-# df_rr <- df_rr %>% select(-study_id)
-# names(df_rr)[c(1:4)] <- c("LogRR","lci_LogRR","uci_LogRR","se_LogRR")
-# 
-# # Combine individual studies' estimates and pooled estimate 
-# df_wtrr <- df_wtRR %>% 
-#   select(-Comparison) %>% 
-#   mutate(study_no = "Weighted\naverage",
-#          stat = "summary") %>% 
-#   rbind(df_rr)
-# 
-# # Plot
-# p_inv_wt <- ggplot(df_wtrr) +
-#   geom_pointrange(aes(x = study_no, y = exp(LogRR), ymax = exp(uci_LogRR), ymin = exp(lci_LogRR), shape = stat)) +
-#   geom_hline(yintercept = 1, linetype = "dashed") +
-#   scale_shape_manual(values = c(16, 5)) +
-#   facet_wrap(~serotype) +
-#   labs(x = "Study no.", y = "Relative risk of colonization") +
-#   theme(strip.background = element_rect(fill = "white", colour = "white"),
-#         panel.grid = element_blank(),
-#         axis.text.x = element_text(angle = 90, vjust = 0.9 , hjust = 1),
-#         legend.position = "none")
-# 
-# # Save
-# if(analysis == "13v7"){
-#   ggsave(p_inv_wt, filename = "_figures/Rplot_inv-var-wt_RR_cp_13v7_750-600.png", device = "png",
-#          width = 7.5, height = 6, unit = "in", dpi = 320)
-# }
-# if(analysis == "15v13"){
-#   ggsave(p_inv_wt, filename = "_figures/Rplot_inv-var-wt_RR_cp_15v13_1000-900.png", device = "png",
-#          width = 10, height = 9, unit = "in", dpi = 320)
-# }
-# if(analysis == "20v13"){
-#   ggsave(p_inv_wt, filename = "_figures/Rplot_inv-var-wt_RR_cp_20v13_1000-900.png", device = "png",
-#          width = 10, height = 9, unit = "in", dpi = 320)
-# }
+saveRDS(df_wtRR_m5, "_results/df_rVE_changepoint_m5.RDS")
+saveRDS(df_wtRR_m6, "_results/df_rVE_changepoint_m6.RDS")
 ```
 
 
@@ -249,34 +100,20 @@ saveRDS(df_wtRR, file_name)
 # Read in new results from m5 & m6:
 files <- list.files(path = "./_results/", pattern = '^df_rVE_changepoint', full.names = TRUE)
 df_RR <- do.call(rbind, lapply(files, function(x) transform(readRDS(x), File = basename(x)))) %>%
-  mutate(File = as.character(str_extract_all(File, "(?<=changepoint_).+(?=.RDS)"))) %>% 
-  separate(File, into = c("vax", "Model")) %>% 
-  select(-vax)
+  mutate(Model = as.character(str_extract_all(File, "(?<=changepoint_).+(?=.RDS)")))
 
 # Plot results for PCV7 serotypes
-p_RR.1 <- ggplot(df_RR %>% filter(serotype %in% vec_7st)) +
-  geom_pointrange(aes(x = serotype, y = exp(LogRR), ymax = exp(uci_LogRR), ymin = exp(lci_LogRR), col = Model)) +
+p_RR.1 <- ggplot(df_RR %>% filter(serotype %in% vec_7st),
+                 aes(x = serotype, y = exp(LogRR), ymax = exp(uci_LogRR), ymin = exp(lci_LogRR), col = Model)) +
+  geom_pointrange(alpha = 0.8, position = position_dodge2(width = 0.5)) +
   geom_hline(yintercept = 1, linetype = "dashed") +
   scale_y_log10(limits = c(0.85, 1.45), breaks = seq(0.9, 1.4, 0.1)) +
   scale_color_manual(values = c("steelblue2", "brown4")) +
-  labs(x = "Serotype", y = "Relative risk") +
+  labs(x = "Serotype", y = "Relative risk", col = "Model") +
   facet_wrap(~Comparison) +
   theme(strip.background = element_rect(fill = "white", colour = "white"),
         panel.grid = element_blank(),
         legend.position = "top")
-
-p_RR.1 <- ggplot(df_RR %>% filter(serotype %in% vec_7st), 
-             aes(x = serotype, y = exp(LogRR), ymax = exp(uci_LogRR), ymin = exp(lci_LogRR) , col = Model)) +
-  geom_pointrange(alpha = 0.8, position = position_dodge2(width = 0.5)) +
-  geom_hline(yintercept = exp(0), linetype = "dashed") +
-  scale_y_log10(limits = c(0.85, 1.45), breaks = seq(0.9, 1.4, 0.1)) +
-  scale_colour_manual(values = c("steelblue2", "brown4")) +
-  labs(x = "Serotype", y = "Relative risk", col = "Model") +
-  theme(strip.background = element_rect(fill = "white", colour = "white"),
-        panel.grid = element_blank(),
-        legend.position = "top") +
-  facet_wrap(~Comparison, scales = "free_x")
-
 
 # Plot results for additional PCV13 serotypes
 p_RR.2 <- ggplot(df_RR %>% filter(serotype %in% c("1", "3", "5", "6A", "7F", "19A"), 
@@ -287,16 +124,12 @@ p_RR.2 <- ggplot(df_RR %>% filter(serotype %in% c("1", "3", "5", "6A", "7F", "19
   scale_y_log10(limits = c(0.85, 1.45), breaks = seq(0.9, 1.4, 0.1)) +
   scale_colour_manual(values = c("steelblue2", "brown4")) +
   labs(x = "Serotype", y = "Relative risk", col = "Model") +
+  facet_wrap(~Comparison) +
   theme(strip.background = element_rect(fill = "white", colour = "white"),
         panel.grid = element_blank(),
-        legend.position = "top") +
-  facet_wrap(~Comparison, scales = "free_x")
+        legend.position = "none")
 
-# Check and save plots
-p_RR.1
-p_RR.2
-# ggsave(p_RR.1, filename = "_figures/Rplot_RR_cp_pcv7st_900-350_sensitivity_muCPflatprior.png", device = "png",
-#        width = 9, height = 3.5, unit = "in", dpi = 320)
-# ggsave(p_RR.2, filename = "_figures/Rplot_RR_cp_pcv13st_700-350_sensitivity_muCPflatprior.png", device = "png",
-#        width = 7, height = 3.5, unit = "in", dpi = 320)
+# Combine plots
+p_RR <- p_RR.1 /  p_RR.2
+p_RR
 ```

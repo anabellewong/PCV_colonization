@@ -18,7 +18,7 @@ for(package_i in list_packages){
 theme_set(theme_bw())
 
 # Read in functions
-source("./_functions/get_wtGMR.R")
+source("./_functions/linear_1_get_wtGMR.R")
 
 # Set vector of serotypes of interest
 vec_7st <- c("4", "6B", "9V", "14", "18C", "19F", "23F")
@@ -189,11 +189,7 @@ plot_wtGMR.13st <- ggplot(df_wtGMR %>% filter(Serotype %in% vec_pcv13.6st,
         legend.position = "bottom") +
   facet_grid(dose_describe~Comparison)
 
-# Check and save plots
+# Check plots
 plot_wtGMR.7st
 plot_wtGMR.13st
-# ggsave(plot_wtGMR.7st, filename = "_figures/_suppl/inv-var-wtLogGMR.7st_750-500.png",
-#        device = "png", width = 7.5, height = 5, unit = "in", dpi = 320)
-# ggsave(plot_wtGMR.13st, filename = "_figures/_suppl/inv-var-wtLogGMR.13st_650-575.png",
-#        device = "png", width = 6.5, height = 5.75, unit = "in", dpi = 320)
 ```

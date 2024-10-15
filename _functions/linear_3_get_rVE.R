@@ -1,5 +1,5 @@
 ################################################################################
-# Function for calculating relative VE
+# Function for calculating relative VE from poled GMR
 ################################################################################
 get_rVE <- function(est, df_GMR, vec_st, vax_dose = c("postprim", "postboost")){
   df_rVE <- left_join(est, df_GMR, by = c("serotype" = "Serotype")) %>% 

@@ -18,7 +18,7 @@ for(package_i in list_packages){
 theme_set(theme_bw())
 
 # Readin in functions
-source("./_functions/get_rVE.R")
+source("./_functions/linear_3_get_rVE.R")
 
 # Set vector of serotypes of interest
 vec_7st <- c("4", "6B", "9V", "14", "18C", "19F", "23F")
@@ -133,11 +133,7 @@ df_rVE_st <- rbind(df_rVE_13v7_st %>% filter(serotype %in% vec_7st),
          Comparison = fct_relevel(Comparison, c("PCV13 vs PCV7", "PCV15 vs PCV13", "PCV20 vs PCV13")))
 p2 <- plot_rVE(df_rVE_st, ethnic = FALSE)
 
-# Check and save plots
+# Check plots
 p1
 p2
-# ggsave(p1, filename = "_figures/_suppl/linear_rVE.ethnic_850-600.png", device = "png",
-#        width = 8.5, height = 6, unit = "in", dpi = 320)
-# ggsave(p2, filename = "_figures/_suppl/linear_rVE.st_850-600.png", device = "png",
-#        width = 7, height = 6, unit = "in", dpi = 320)
 ```
