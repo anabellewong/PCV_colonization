@@ -30,9 +30,63 @@ a1 <- a1 %>%
   mutate(st.index = as.numeric(as.factor(Serotype)),
          bedouin = if_else(Ethnicity=='Bedouin',1,0))
 
-source('./_functions/hierarchical_log.R')
-mod3 <- hierarchical_model_log(log_gmc_mean= mean(a1$log_GMC), 
-                               log_gmc_prec= 1/(var(a1$log_GMC)*2)
-                               )
-saveRDS(mod3, "./_models/mod3.RDS")
+
+# change point model with ethnicity-specific baseline colonization risk (run time: 2 hrs on PC)
+source('_functions/hierarchical_log_ethnicitym5.R')
+mod5 <- hierarchical_model_log(log_gmc_mean= mean(a1$log_GMC),
+                               log_gmc_prec= 1/(var(a1$log_GMC)*2))
+saveRDS(mod5, "_models/mod5.RDS")
+
+
+# mod5 with flat prior for cp (run time: 2 hrs on PC)
+source('_functions/hierarchical_log_ethnicitym6.R')
+mod6 <- hierarchical_model_log(log_gmc_mean= mean(a1$log_GMC),
+                               log_gmc_prec= 1/(var(a1$log_GMC)*2))
+saveRDS(mod6, "_models/mod6.RDS")
+```
+
+
+## Check trace plots
+```{r diag_rjags, echo=FALSE}
+iter.index <- seq(1, 30000, 10)
+
+mod_object <- mod5
+# mod_object <- mod6
+
+# Function to organize posterior sample for trace plots
+mgmt_posterior <- function(df_map, mod, iter.index, param_col_index){
+  df_param <- as.data.frame(mod$posterior_samples.all[iter.index, param_col_index])
+  names(df_param) <- c(1:13)
+  df_param <- df_param %>% 
+    #rownames_to_column(var = "iter") %>% 
+    cbind(iter.index) %>% 
+    pivot_longer(1:13, names_to = "st.index", values_to = "value") %>% 
+    mutate(st.index = as.numeric(st.index),
+           iter.index = as.numeric(iter.index)) %>% 
+    left_join(df_map, by = "st.index") %>% 
+    mutate(serotype = as.factor(serotype),
+           serotype = fct_relevel(serotype, vec_serotype)) %>% 
+    select(-c(PCV, st.index))
+  return(df_param)
+}
+
+sample_b0 <- mgmt_posterior(df_map, mod_object, vec_sample, c(1:13))
+sample_b1 <- mgmt_posterior(df_map, mod_object, vec_sample, c(14:26))
+sample_b3 <- mgmt_posterior(df_map, mod_object, vec_sample, c(27:39))
+sample_cp <- mgmt_posterior(df_map, mod_object, vec_sample, c(40:52))
+
+# Check trace plots for each param
+plot_trce <- function(sample, nm_param){
+  ggplot(sample, aes(x = iter.index, y = value, group = serotype)) +
+  geom_line() +
+  labs(x = "Iteration", y = "Value", subtitle = nm_param) +
+  facet_wrap(~serotype, scales = "free") +
+  theme(strip.background = element_rect(fill = "white", colour = "white"),
+        panel.grid = element_blank())
+}
+
+p_b0 <- plot_trce(sample_b0, nm_param = "Intercept")
+p_b1 <- plot_trce(sample_b1, nm_param = "Slope")
+p_b3 <- plot_trce(sample_b3, nm_param = "Ethnicity-specific intercept")
+p_cp <- plot_trce(sample_cp, nm_param = "Change point")
 ```

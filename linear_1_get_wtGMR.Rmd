@@ -102,15 +102,6 @@ p2c <- plot_GMR(df_GMR_20v13_postboost, vec_st = vec_13st, n_col = 2)
 p2d <- plot_GMR(df_GMR_13v7_postprim, vec_st = vec_7st, n_col = 3)
 p2e <- plot_GMR(df_GMR_15v13_postprim, vec_st = vec_7st, n_col = 3)
 p2f <- plot_GMR(df_GMR_20v13_postprim, vec_st = vec_13st, n_col = 2)
-
-# # Save plots for post-booster
-# ggsave(p2a, filename = "_figures/_suppl/LogGMR_13v7_postboost_700-450.png", device = "png", width = 7, height = 4.5, unit = "in", dpi = 320)
-# ggsave(p2b, filename = "_figures/_suppl/LogGMR_15v13_postboost_1000-600.png", device = "png", width = 10, height = 6, unit = "in", dpi = 320)
-# ggsave(p2c, filename = "_figures/_suppl/LogGMR_20v13_postboost_700-450.png", device = "png", width = 7, height = 4.5, unit = "in", dpi = 320)
-# 
-# ggsave(p2d, filename = "_figures/_suppl/LogGMR_13v7_postprim_700-450.png", device = "png", width = 7, height = 4.5, unit = "in", dpi = 320)
-# ggsave(p2e, filename = "_figures/_suppl/LogGMR_15v13_postprim_1000-600.png", device = "png", width = 10, height = 6, unit = "in", dpi = 320)
-# ggsave(p2f, filename = "_figures/_suppl/LogGMR_20v13_postprim_700-450.png", device = "png", width = 7, height = 4.5, unit = "in", dpi = 320)
 ```
 
 ## Get inverse-variance weighted GMC ratio (GMR)
